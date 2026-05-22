@@ -6,25 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/opzc35/tuikit/internal/auth"
+	"github.com/opzc35/tuikit/internal/chat"
 	"github.com/opzc35/tuikit/internal/sshserver"
 )
 
 type App struct {
 	store *auth.Store
+	chat  *chat.Store
 }
 
 type terminal struct {
 	ctx context.Context
 	in  *bufio.Reader
 	out io.Writer
+	mu  sync.Mutex
 }
 
-func New(store *auth.Store) *App {
-	return &App{store: store}
+func New(store *auth.Store, chatStore *chat.Store) *App {
+	return &App{store: store, chat: chatStore}
 }
 
 func (a *App) HandleSession(ctx context.Context, session sshserver.Session) int {
@@ -102,18 +107,20 @@ func (a *App) userMenu(term *terminal, user auth.User) {
 		term.header(fmt.Sprintf("Welcome, %s", user.Username))
 		term.printf("Role: %s\r\n\r\n", user.Role)
 
-		options := []string{"Profile", "Logout"}
+		options := []string{"Profile", "Chat", "Logout"}
 		if user.Role == auth.RoleAdmin {
-			options = []string{"Profile", "Admin", "Logout"}
+			options = []string{"Profile", "Chat", "Admin", "Logout"}
 		}
 
 		choice := term.menu("User Menu", options)
 		switch {
 		case choice == "1":
 			a.profile(term, user)
-		case user.Role == auth.RoleAdmin && choice == "2":
-			a.adminMenu(term)
-		case (user.Role == auth.RoleAdmin && choice == "3") || (user.Role != auth.RoleAdmin && choice == "2"):
+		case choice == "2":
+			a.chatMenu(term, user)
+		case user.Role == auth.RoleAdmin && choice == "3":
+			a.adminMenu(term, user)
+		case (user.Role == auth.RoleAdmin && choice == "4") || (user.Role != auth.RoleAdmin && choice == "3"):
 			return
 		default:
 			term.pause("Invalid choice.")
@@ -132,7 +139,186 @@ func (a *App) profile(term *terminal, user auth.User) {
 	term.pause("")
 }
 
-func (a *App) adminMenu(term *terminal) {
+func (a *App) chatMenu(term *terminal, user auth.User) {
+	for {
+		switch term.menu("Chat", []string{"Open channel", "Create channel", "List channels", "Back"}) {
+		case "1":
+			channel := term.prompt("Channel")
+			a.channelMenu(term, user, channel)
+		case "2":
+			a.createChannel(term, user)
+		case "3":
+			a.listChannels(term)
+		case "4":
+			return
+		default:
+			term.pause("Invalid choice.")
+		}
+	}
+}
+
+func (a *App) createChannel(term *terminal, user auth.User) {
+	term.clear()
+	term.header("Create Channel")
+	term.println("Channel names allow letters, numbers, underscore, and hyphen.")
+	term.println("")
+	name := term.prompt("Name")
+	topic := term.prompt("Topic")
+	if err := a.chat.CreateChannel(name, topic, user.Username); err != nil {
+		term.pause(fmt.Sprintf("Failed: %v", err))
+		return
+	}
+	term.pause("Channel created.")
+}
+
+func (a *App) listChannels(term *terminal) {
+	term.clear()
+	term.header("Channels")
+	term.printf("%-24s %-18s %s\r\n", "NAME", "CREATED BY", "TOPIC")
+	term.println(strings.Repeat("-", 72))
+	for _, channel := range a.chat.ListChannels() {
+		term.printf("%-24s %-18s %s\r\n", channel.Name, channel.CreatedBy, channel.Topic)
+	}
+	term.pause("")
+}
+
+func (a *App) channelMenu(term *terminal, user auth.User, channelName string) {
+	channel, ok := a.chat.Channel(channelName)
+	if !ok {
+		term.pause("Channel not found.")
+		return
+	}
+
+	events, unsubscribe := a.chat.Subscribe(channel.Name)
+	defer unsubscribe()
+
+	draft := &liveDraft{}
+	inputs := make(chan string)
+	acks := make(chan bool)
+	draftChanged := make(chan struct{}, 1)
+	errs := make(chan error, 1)
+	go func() {
+		for {
+			line, err := readLiveLine(term, draft, draftChanged)
+			if err != nil {
+				errs <- err
+				return
+			}
+			inputs <- strings.TrimSpace(line)
+			if !<-acks {
+				return
+			}
+		}
+	}()
+
+	notice := "Live chat started. Type /back to leave, /help for commands."
+	for {
+		a.renderLiveChat(term, channel, notice, draft.String())
+		select {
+		case <-term.ctx.Done():
+			return
+		case err := <-errs:
+			if err != nil {
+				return
+			}
+		case <-draftChanged:
+			continue
+		case event := <-events:
+			if event.Text != "" {
+				notice = event.Text
+			} else {
+				notice = fmt.Sprintf("Updated at %s", event.Time.Format("15:04:05"))
+			}
+			continue
+		case line := <-inputs:
+			switch strings.ToLower(line) {
+			case "":
+				notice = "No message sent."
+			case "/back", "/quit", "/exit":
+				acks <- false
+				return
+			case "/help":
+				notice = "Commands: /back leaves the channel, /help shows this line. Any other text sends a message."
+				acks <- true
+			default:
+				if _, err := a.chat.PostMessage(channel.Name, user.Username, line); err != nil {
+					notice = fmt.Sprintf("Failed: %v", err)
+				} else {
+					notice = "Message sent."
+				}
+				acks <- true
+			}
+			if line == "" {
+				acks <- true
+			}
+		}
+	}
+}
+
+func (a *App) renderLiveChat(term *terminal, channel chat.Channel, notice string, draft string) {
+	var screen strings.Builder
+	screen.WriteString("\x1b[2J\x1b[H")
+	screen.WriteString("\x1b[1m#")
+	screen.WriteString(channel.Name)
+	screen.WriteString("\x1b[0m\r\n")
+	screen.WriteString(strings.Repeat("=", len(channel.Name)+1))
+	screen.WriteString("\r\n")
+	if channel.Topic != "" {
+		screen.WriteString(channel.Topic)
+		screen.WriteString("\r\n")
+	}
+	screen.WriteString("\r\n")
+
+	messages := a.chat.RecentMessages(channel.Name, 30, false)
+	if len(messages) == 0 {
+		screen.WriteString("No messages yet.\r\n")
+	} else {
+		for _, message := range messages {
+			screen.WriteString(formatMessage(message))
+			screen.WriteString("\r\n")
+		}
+	}
+
+	screen.WriteString("\r\n")
+	if notice != "" {
+		screen.WriteString("Status: ")
+		screen.WriteString(notice)
+		screen.WriteString("\r\n")
+	}
+	screen.WriteString("Type a message and press Enter. /back exits, /help shows commands.\r\n")
+	screen.WriteString("> ")
+	screen.WriteString(draft)
+	term.write(screen.String())
+}
+
+func (a *App) printMessages(term *terminal, channel string, limit int, includeDeleted bool) {
+	messages := a.chat.RecentMessages(channel, limit, includeDeleted)
+	if len(messages) == 0 {
+		term.println("No messages.")
+		return
+	}
+	for _, message := range messages {
+		term.println(formatMessage(message))
+	}
+}
+
+func formatMessage(message chat.Message) string {
+	status := ""
+	body := message.Body
+	if message.Deleted {
+		status = " [deleted]"
+		body = fmt.Sprintf("<deleted by %s>", message.DeletedBy)
+	}
+	return fmt.Sprintf("[%d] %s %-16s %s%s",
+		message.ID,
+		message.CreatedAt.Format("01-02 15:04"),
+		message.Author+":",
+		body,
+		status,
+	)
+}
+
+func (a *App) adminMenu(term *terminal, user auth.User) {
 	for {
 		switch term.menu("Admin", []string{
 			"List users",
@@ -142,6 +328,7 @@ func (a *App) adminMenu(term *terminal) {
 			"Disable user",
 			"Reset password",
 			"Delete user",
+			"Chat moderation",
 			"Back",
 		}) {
 		case "1":
@@ -159,11 +346,122 @@ func (a *App) adminMenu(term *terminal) {
 		case "7":
 			a.deleteUser(term)
 		case "8":
+			a.chatAdminMenu(term, user)
+		case "9":
 			return
 		default:
 			term.pause("Invalid choice.")
 		}
 	}
+}
+
+func (a *App) chatAdminMenu(term *terminal, user auth.User) {
+	for {
+		switch term.menu("Chat Moderation", []string{
+			"View channel messages",
+			"Delete message",
+			"Clear channel",
+			"Mute user",
+			"Unmute user",
+			"List muted users",
+			"Back",
+		}) {
+		case "1":
+			a.adminViewMessages(term)
+		case "2":
+			a.adminDeleteMessage(term, user)
+		case "3":
+			a.adminClearChannel(term, user)
+		case "4":
+			a.adminMuteUser(term, user)
+		case "5":
+			a.adminUnmuteUser(term)
+		case "6":
+			a.adminListMutes(term)
+		case "7":
+			return
+		default:
+			term.pause("Invalid choice.")
+		}
+	}
+}
+
+func (a *App) adminViewMessages(term *terminal) {
+	term.clear()
+	term.header("View Messages")
+	channel := term.prompt("Channel")
+	limit := parsePositiveInt(term.prompt("Limit"), 50)
+	term.clear()
+	term.header("#" + channel)
+	a.printMessages(term, channel, limit, true)
+	term.pause("")
+}
+
+func (a *App) adminDeleteMessage(term *terminal, user auth.User) {
+	term.clear()
+	term.header("Delete Message")
+	id, err := strconv.ParseInt(term.prompt("Message ID"), 10, 64)
+	if err != nil {
+		term.pause("Invalid message ID.")
+		return
+	}
+	if err := a.chat.DeleteMessage(id, user.Username); err != nil {
+		term.pause(fmt.Sprintf("Failed: %v", err))
+		return
+	}
+	term.pause("Message deleted.")
+}
+
+func (a *App) adminClearChannel(term *terminal, user auth.User) {
+	term.clear()
+	term.header("Clear Channel")
+	channel := term.prompt("Channel")
+	confirm := term.prompt(fmt.Sprintf("Type %q to confirm", channel))
+	if strings.TrimSpace(confirm) != strings.TrimSpace(channel) {
+		term.pause("Clear cancelled.")
+		return
+	}
+	count, err := a.chat.ClearChannel(channel, user.Username)
+	if err != nil {
+		term.pause(fmt.Sprintf("Failed: %v", err))
+		return
+	}
+	term.pause(fmt.Sprintf("Deleted %d messages.", count))
+}
+
+func (a *App) adminMuteUser(term *terminal, user auth.User) {
+	term.clear()
+	term.header("Mute User")
+	username := term.prompt("Username")
+	hours := parsePositiveInt(term.prompt("Hours"), 24)
+	reason := term.prompt("Reason")
+	if err := a.chat.MuteUser(username, hours, reason, user.Username); err != nil {
+		term.pause(fmt.Sprintf("Failed: %v", err))
+		return
+	}
+	term.pause("User muted.")
+}
+
+func (a *App) adminUnmuteUser(term *terminal) {
+	term.clear()
+	term.header("Unmute User")
+	username := term.prompt("Username")
+	if err := a.chat.UnmuteUser(username); err != nil {
+		term.pause(fmt.Sprintf("Failed: %v", err))
+		return
+	}
+	term.pause("User unmuted.")
+}
+
+func (a *App) adminListMutes(term *terminal) {
+	term.clear()
+	term.header("Muted Users")
+	term.printf("%-24s %-20s %s\r\n", "USERNAME", "UNTIL", "REASON")
+	term.println(strings.Repeat("-", 72))
+	for _, mute := range a.chat.ListMutes() {
+		term.printf("%-24s %-20s %s\r\n", mute.Username, mute.Until.Format("2006-01-02 15:04"), mute.Reason)
+	}
+	term.pause("")
 }
 
 func (a *App) listUsers(term *terminal) {
@@ -318,6 +616,88 @@ func lastRune(s string) (rune, int) {
 	return 0, 1
 }
 
+func parsePositiveInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+type liveDraft struct {
+	mu    sync.RWMutex
+	value string
+}
+
+func (d *liveDraft) String() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.value
+}
+
+func (d *liveDraft) appendByte(ch byte) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.value += string([]byte{ch})
+}
+
+func (d *liveDraft) backspace() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.value == "" {
+		return
+	}
+	_, size := lastRune(d.value)
+	d.value = d.value[:len(d.value)-size]
+}
+
+func (d *liveDraft) clear() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	value := d.value
+	d.value = ""
+	return value
+}
+
+func readLiveLine(term *terminal, draft *liveDraft, changed chan<- struct{}) (string, error) {
+	notify := func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	}
+
+	for {
+		select {
+		case <-term.ctx.Done():
+			return "", term.ctx.Err()
+		default:
+		}
+
+		ch, err := term.in.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		switch ch {
+		case '\r', '\n':
+			line := draft.clear()
+			notify()
+			return line, nil
+		case 3, 4:
+			return "", io.EOF
+		case 8, 127:
+			draft.backspace()
+			notify()
+		default:
+			if ch < 32 {
+				continue
+			}
+			draft.appendByte(ch)
+			notify()
+		}
+	}
+}
+
 func (t *terminal) pause(message string) {
 	if message != "" {
 		t.println("")
@@ -336,5 +716,13 @@ func (t *terminal) println(text string) {
 }
 
 func (t *terminal) printf(format string, args ...any) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	fmt.Fprintf(t.out, format, args...)
+}
+
+func (t *terminal) write(text string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	fmt.Fprint(t.out, text)
 }

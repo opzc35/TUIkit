@@ -11,6 +11,9 @@ TUIkit is a Go SSH application built with `golang.org/x/crypto/ssh`. Users conne
 - User registration and login
 - Password hashing with bcrypt
 - Local JSON user database
+- Custom real-time chat channels with message history
+- Live channel updates when other users post messages or administrators moderate content
+- Administrator chat moderation: view deleted content, delete messages, clear channels, mute and unmute users
 - Automatic host key generation
 - Administrator menu for user listing, role changes, activation, password reset, and deletion
 
@@ -37,7 +40,18 @@ ssh -p 2222 localhost
 The default files are:
 
 - `data/users.json` for users
+- `data/chat.json` for channels, messages, and mutes
 - `data/host_key` for the SSH host key
+
+Useful flags:
+
+```sh
+go run ./cmd/tuikit \
+  -addr :2222 \
+  -data data/users.json \
+  -chat-data data/chat.json \
+  -host-key data/host_key
+```
 
 ## Build
 

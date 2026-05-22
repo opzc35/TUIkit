@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/opzc35/tuikit/internal/auth"
+	"github.com/opzc35/tuikit/internal/chat"
 	"github.com/opzc35/tuikit/internal/sshserver"
 	"github.com/opzc35/tuikit/internal/tui"
 )
@@ -20,6 +21,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":2222", "SSH listen address")
 	dataPath := flag.String("data", "data/users.json", "user database path")
+	chatPath := flag.String("chat-data", "data/chat.json", "chat database path")
 	hostKeyPath := flag.String("host-key", "data/host_key", "SSH host key path")
 	flag.Parse()
 
@@ -42,7 +44,12 @@ func main() {
 		log.Print("created initial admin user: admin")
 	}
 
-	app := tui.New(store)
+	chatStore, err := chat.OpenStore(*chatPath)
+	if err != nil {
+		log.Fatalf("open chat store: %v", err)
+	}
+
+	app := tui.New(store, chatStore)
 	server, err := sshserver.New(sshserver.Config{
 		Addr:        *addr,
 		HostKeyPath: *hostKeyPath,
