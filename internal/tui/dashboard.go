@@ -127,11 +127,8 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Intercept shortcut keys before passing to list
 		switch msg.String() {
-		case "enter":
-			if item, ok := m.channelList.SelectedItem().(channelItem); ok {
-				return m, func() tea.Msg { return openChatMsg{channel: item.channel.Name} }
-			}
 		case "c":
 			m.screen = dashCreateChannel
 			m.nameInput.SetValue("")
@@ -147,6 +144,7 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			if m.user.Role == auth.RoleAdmin {
 				return m, func() tea.Msg { return navigateMsg(screenAdmin) }
 			}
+			return m, nil
 		case "q":
 			return m, func() tea.Msg { return logoutMsg{} }
 		}
