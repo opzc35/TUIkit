@@ -229,6 +229,18 @@ func (l *Layout) PaneCount() int {
 	return l.left.PaneCount() + l.right.PaneCount()
 }
 
+// ReplacePane replaces the pane with the given ID with a new pane.
+func (l *Layout) ReplacePane(targetID paneID, newPane *Pane) {
+	if l.pane != nil {
+		if l.pane.id == targetID {
+			l.pane = newPane
+		}
+		return
+	}
+	l.left.ReplacePane(targetID, newPane)
+	l.right.ReplacePane(targetID, newPane)
+}
+
 // StatusLine returns a status line showing all panes.
 func (l *Layout) StatusLine() string {
 	panes := l.AllPanes()

@@ -348,7 +348,7 @@ func (m adminModel) viewMainMenu() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
+		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, items...),
 		"",
@@ -389,7 +389,7 @@ func (m adminModel) viewChatModerationMenu() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
+		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, items...),
 		"",
@@ -427,7 +427,7 @@ func (m adminModel) viewListUsers() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
+		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, userList...),
 		"",
@@ -467,7 +467,7 @@ func (m adminModel) viewListMutes() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
+		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, muteList...),
 		"",
@@ -487,7 +487,7 @@ func (m adminModel) viewInputScreen(title, prompt string) string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
+		
 		"",
 		labelStyle.Render(prompt+":"),
 		"",

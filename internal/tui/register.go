@@ -160,8 +160,6 @@ func (m registerModel) View() string {
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
-		"",
 		usernameField,
 		"",
 		passwordField,

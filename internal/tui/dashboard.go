@@ -129,6 +129,11 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 	case tea.KeyMsg:
 		// Intercept shortcut keys before passing to list
 		switch msg.String() {
+		case "enter":
+			if item, ok := m.channelList.SelectedItem().(channelItem); ok {
+				return m, func() tea.Msg { return openChatMsg{channel: item.channel.Name} }
+			}
+			return m, nil
 		case "c":
 			m.screen = dashCreateChannel
 			m.nameInput.SetValue("")
@@ -240,8 +245,6 @@ func (m dashboardModel) viewMain() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			titleStyle.Render("Navigation"),
 			"",
-			ClockBlock(),
-			"",
 			menuItemStyle.Render("> Channels"),
 			"  Create (c)",
 			"  Profile (p)",
@@ -258,20 +261,10 @@ func (m dashboardModel) viewMain() string {
 		),
 	)
 
-	statusBar := statusBarStyle.Width(m.width - 4).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left,
-			" User: "+m.user.Username,
-			" | ",
-			"Role: "+string(m.user.Role),
-		),
-	)
-
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("TUIkit Dashboard"),
 		"",
 		SplitScreen(sidebar, channelView),
-		"",
-		statusBar,
 	)
 }
 

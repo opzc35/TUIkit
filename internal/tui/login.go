@@ -134,8 +134,6 @@ func (m loginModel) View() string {
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
-		"",
 		usernameField,
 		"",
 		passwordField,

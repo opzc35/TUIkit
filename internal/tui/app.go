@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opzc35/tuikit/internal/auth"
@@ -215,6 +217,42 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout.SplitFocused(pane, splitHorizontal)
 		return m, cmd
 
+	case navigateMsg:
+		target := screen(msg)
+		if !m.loggedIn {
+			// Before login: only menu/login/register
+			switch target {
+			case screenLogin:
+				pane := m.createPane(screenLogin)
+				m.layout = singlePane(pane)
+				return m, textinput.Blink
+			case screenRegister:
+				pane := m.createPane(screenRegister)
+				m.layout = singlePane(pane)
+				return m, textinput.Blink
+			}
+			return m, nil
+		}
+		// After login: replace focused pane with the target screen
+		if m.layout == nil {
+			return m, nil
+		}
+		focused := m.layout.FocusedPane()
+		if focused == nil {
+			return m, nil
+		}
+		// Unsubscribe old pane if it was a chat
+		oldPm := m.panes[focused.id]
+		if oldPm.screen == screenChat && oldPm.chatView.unsub != nil {
+			oldPm.chatView.unsub()
+		}
+		delete(m.panes, focused.id)
+		newPane := m.createPane(target)
+		// Replace the focused pane in the layout
+		m.layout.ReplacePane(focused.id, newPane)
+		m.layout.SetFocus(newPane.id)
+		return m, nil
+
 	case splitMsg:
 		if !m.loggedIn || m.layout == nil {
 			return m, nil
@@ -415,8 +453,13 @@ func (m rootModel) View() string {
 	layoutView := m.layout.Render(m.width, mainHeight, views)
 
 	statusBar := statusBarStyle.Width(m.width - 4).Render(
-		fmt.Sprintf(" Panes: %s | Ctrl+s/v split | Ctrl+w close | Ctrl+h/l focus",
-			m.layout.StatusLine()),
+		fmt.Sprintf(" %s %s | User: %s (%s) | Panes: %s | Ctrl+s/v split | Ctrl+w close | Ctrl+h/l focus",
+			time.Now().Format("15:04:05"),
+			time.Now().Format("2006-01-02"),
+			m.user.Username,
+			m.user.Role,
+			m.layout.StatusLine(),
+		),
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left,

@@ -53,8 +53,6 @@ func (m profileModel) View() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		ClockBlock(),
-		"",
 		fmt.Sprintf("%s %s", labelStyle.Render("Username:"), m.user.Username),
 		fmt.Sprintf("%s %s", labelStyle.Render("Role:"), string(m.user.Role)),
 		fmt.Sprintf("%s %t", labelStyle.Render("Active:"), m.user.Active),

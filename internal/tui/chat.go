@@ -216,8 +216,6 @@ func (m chatModel) View() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			titleStyle.Render("Chat"),
 			"",
-			ClockBlock(),
-			"",
 			selectedMenuItemStyle.Render("> #"+m.channel),
 			"",
 			dimStyle.Render("Session"),

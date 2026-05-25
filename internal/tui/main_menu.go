@@ -88,8 +88,6 @@ func (m mainMenuModel) View() string {
 	menu := lipgloss.JoinVertical(lipgloss.Left, items...)
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
-		ClockBlock(),
-		"",
 		title,
 		subtitle,
 		"",
