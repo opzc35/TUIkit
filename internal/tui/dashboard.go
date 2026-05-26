@@ -236,7 +236,7 @@ func (m dashboardModel) viewMain() string {
 			"",
 			m.channelList.View(),
 			"",
-			dimStyle.Render("Enter=join c=create i=checkin p=profile a=admin q=logout"),
+			dimStyle.Render("Enter=join c=create i=checkin p=profile a=admin x=api q=logout"),
 		)
 		return lipgloss.NewStyle().Padding(0, 1).Render(content)
 	}
@@ -274,7 +274,7 @@ func (m dashboardModel) viewMain() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			m.channelList.View(),
 			"",
-			dimStyle.Render("Enter = join, c/i/p/a/q = navigate"),
+			dimStyle.Render("Enter = join, c/i/p/a/x/q = navigate"),
 		),
 	)
 

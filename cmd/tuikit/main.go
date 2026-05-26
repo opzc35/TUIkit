@@ -14,6 +14,7 @@ import (
 
 	"github.com/opzc35/tuikit/internal/auth"
 	"github.com/opzc35/tuikit/internal/chat"
+	"github.com/opzc35/tuikit/internal/proxy"
 	"github.com/opzc35/tuikit/internal/sshserver"
 	"github.com/opzc35/tuikit/internal/tui"
 )
@@ -23,6 +24,8 @@ func main() {
 	dataPath := flag.String("data", "data/users.json", "user database path")
 	chatPath := flag.String("chat-data", "data/chat.json", "chat database path")
 	hostKeyPath := flag.String("host-key", "data/host_key", "SSH host key path")
+	apiAddr := flag.String("api-addr", ":8080", "API proxy listen address")
+	proxyPath := flag.String("proxy-data", "data/proxy.json", "API proxy database path")
 	flag.Parse()
 
 	store, err := auth.OpenStore(*dataPath)
@@ -49,7 +52,12 @@ func main() {
 		log.Fatalf("open chat store: %v", err)
 	}
 
-	app := tui.New(store, chatStore)
+	proxyStore, err := proxy.OpenStore(*proxyPath)
+	if err != nil {
+		log.Fatalf("open proxy store: %v", err)
+	}
+
+	app := tui.New(store, chatStore, proxyStore, *apiAddr)
 	server, err := sshserver.New(sshserver.Config{
 		Addr:        *addr,
 		HostKeyPath: *hostKeyPath,
@@ -68,6 +76,12 @@ func main() {
 		errCh <- server.ListenAndServe()
 	}()
 
+	proxyServer := proxy.NewServer(*apiAddr, proxyStore)
+	proxyErrCh := make(chan error, 1)
+	go func() {
+		proxyErrCh <- proxyServer.ListenAndServe()
+	}()
+
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -75,9 +89,17 @@ func main() {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("shutdown error: %v", err)
 		}
+		if err := proxyServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("proxy shutdown error: %v", err)
+		}
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+			os.Exit(1)
+		}
+	case err := <-proxyErrCh:
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			fmt.Fprintf(os.Stderr, "proxy server error: %v\n", err)
 			os.Exit(1)
 		}
 	}

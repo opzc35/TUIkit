@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opzc35/tuikit/internal/auth"
 	"github.com/opzc35/tuikit/internal/chat"
+	"github.com/opzc35/tuikit/internal/proxy"
 	"github.com/opzc35/tuikit/internal/sshserver"
 )
 
@@ -25,11 +26,14 @@ const (
 	screenProfile
 	screenAdmin
 	screenCheckIn
+	screenAPIUser
 )
 
 type App struct {
-	store *auth.Store
-	chat  *chat.Store
+	store      *auth.Store
+	chat       *chat.Store
+	proxyStore *proxy.Store
+	apiAddr    string
 }
 
 // paneModel wraps a screen model in a pane with a unique ID.
@@ -41,16 +45,19 @@ type paneModel struct {
 	profile   profileModel
 	admin     adminModel
 	checkin   checkinModel
+	apiUser   apiUserModel
 }
 
 type rootModel struct {
-	user     *auth.User
-	width    int
-	height   int
-	ctx      context.Context
-	store    *auth.Store
-	chat     *chat.Store
-	session  sshserver.Session
+	user      *auth.User
+	width     int
+	height    int
+	ctx       context.Context
+	store     *auth.Store
+	chat      *chat.Store
+	proxyStore *proxy.Store
+	apiAddr   string
+	session   sshserver.Session
 	layout   *Layout
 	panes    map[paneID]*paneModel
 	nextPane paneID
@@ -71,13 +78,13 @@ type closePaneMsg struct{}
 type focusNextMsg struct{}
 type focusPrevMsg struct{}
 
-func New(store *auth.Store, chatStore *chat.Store) *App {
-	return &App{store: store, chat: chatStore}
+func New(store *auth.Store, chatStore *chat.Store, proxyStore *proxy.Store, apiAddr string) *App {
+	return &App{store: store, chat: chatStore, proxyStore: proxyStore, apiAddr: apiAddr}
 }
 
 func (a *App) HandleSession(ctx context.Context, session sshserver.Session) int {
 	p := tea.NewProgram(
-		newRootModel(ctx, a.store, a.chat, session),
+		newRootModel(ctx, a.store, a.chat, a.proxyStore, a.apiAddr, session),
 		tea.WithContext(ctx),
 		tea.WithInput(session.Stdin),
 		tea.WithOutput(session.Stdout),
@@ -102,14 +109,16 @@ func (a *App) HandleSession(ctx context.Context, session sshserver.Session) int 
 	return 0
 }
 
-func newRootModel(ctx context.Context, store *auth.Store, chatStore *chat.Store, session sshserver.Session) rootModel {
+func newRootModel(ctx context.Context, store *auth.Store, chatStore *chat.Store, proxyStore *proxy.Store, apiAddr string, session sshserver.Session) rootModel {
 	m := rootModel{
-		width:    80,
-		height:   24,
-		ctx:      ctx,
-		store:    store,
-		chat:     chatStore,
-		session:  session,
+		width:      80,
+		height:     24,
+		ctx:        ctx,
+		store:      store,
+		chat:       chatStore,
+		proxyStore: proxyStore,
+		apiAddr:    apiAddr,
+		session:    session,
 		panes:    map[paneID]*paneModel{},
 		nextPane: paneID(1),
 		loggedIn: false,
@@ -154,7 +163,7 @@ func (m *rootModel) createPane(screen screen) *Pane {
 			pm.profile.user = *m.user
 		}
 	case screenAdmin:
-		pm.admin = newAdmin(m.store, m.chat)
+		pm.admin = newAdmin(m.store, m.chat, m.proxyStore)
 		if m.user != nil {
 			pm.admin.user = *m.user
 		}
@@ -164,6 +173,8 @@ func (m *rootModel) createPane(screen screen) *Pane {
 			pm.checkin.user = *m.user
 		}
 		pm.checkin.ranking = m.store.GetCheckInRanking(10)
+		case screenAPIUser:
+			pm.apiUser = newAPIUser(m.proxyStore, m.apiAddr)
 	}
 
 	m.panes[id] = pm
@@ -201,6 +212,8 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pm.admin, c = pm.admin.Update(sizeMsg)
 				case screenCheckIn:
 					pm.checkin, c = pm.checkin.Update(sizeMsg)
+				case screenAPIUser:
+					pm.apiUser, c = pm.apiUser.Update(sizeMsg)
 				}
 				cmds = append(cmds, c)
 			}

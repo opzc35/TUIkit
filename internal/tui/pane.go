@@ -305,6 +305,8 @@ func screenLabel(s screen) string {
 		return "Admin"
 	case screenCheckIn:
 		return "CheckIn"
+	case screenAPIUser:
+		return "API"
 	default:
 		return "?"
 	}

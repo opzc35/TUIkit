@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opzc35/tuikit/internal/auth"
 	"github.com/opzc35/tuikit/internal/chat"
+	"github.com/opzc35/tuikit/internal/proxy"
 )
 
 type adminScreen int
@@ -29,35 +30,47 @@ const (
 	adminMuteUser
 	adminUnmuteUser
 	adminListMutes
+	// API relay screens
+	adminAPIRelay
+	adminAPIListRoutes
+	adminAPIAddRoute
+	adminAPIDeleteRoute
+	adminAPIToggleRoute
 )
 
 type adminModel struct {
 	screen     adminScreen
 	store      *auth.Store
 	chatStore  *chat.Store
+	proxyStore *proxy.Store
 	user       auth.User
 	users      []auth.User
 	channels   []chat.Channel
 	messages   []chat.Message
 	mutes      []chat.Mute
+	routes     []proxy.Route
 	cursor     int
 	input      textinput.Model
+	// Multi-field inputs for API route creation
+	inputs     []textinput.Model
+	inputFocus int
 	notice     string
 	width      int
 	height     int
 }
 
-func newAdmin(store *auth.Store, chatStore *chat.Store) adminModel {
+func newAdmin(store *auth.Store, chatStore *chat.Store, proxyStore *proxy.Store) adminModel {
 	ti := textinput.New()
 	ti.Placeholder = "Enter username..."
 	ti.CharLimit = 32
 	ti.Width = 30
 
 	return adminModel{
-		screen:    adminMain,
-		store:     store,
-		chatStore: chatStore,
-		input:     ti,
+		screen:     adminMain,
+		store:      store,
+		chatStore:  chatStore,
+		proxyStore: proxyStore,
+		input:      ti,
 	}
 }
 
@@ -70,7 +83,6 @@ func (m adminModel) Update(msg tea.Msg) (adminModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Responsive input width for admin screens
 		boxWidth := m.width / 2
 		if boxWidth < 40 {
 			boxWidth = 40
@@ -80,6 +92,9 @@ func (m adminModel) Update(msg tea.Msg) (adminModel, tea.Cmd) {
 		}
 		inputWidth := boxWidth - 16
 		m.input.Width = inputWidth
+		for i := range m.inputs {
+			m.inputs[i].Width = inputWidth
+		}
 		return m, nil
 
 	case userLoginMsg:
@@ -89,6 +104,15 @@ func (m adminModel) Update(msg tea.Msg) (adminModel, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.screen == adminMain {
 			return m.updateMainMenu(msg)
+		}
+		if m.screen == adminAPIRelay {
+			return m.updateAPIRelayMenu(msg)
+		}
+		if m.screen == adminAPIAddRoute {
+			return m.updateAPIAddRoute(msg)
+		}
+		if m.screen == adminAPIDeleteRoute || m.screen == adminAPIToggleRoute {
+			return m.updateAPISingleInput(msg)
 		}
 		return m.updateSubScreen(msg)
 	}
@@ -108,6 +132,7 @@ func (m adminModel) updateMainMenu(msg tea.KeyMsg) (adminModel, tea.Cmd) {
 		"Reset password",
 		"Delete user",
 		"Chat moderation",
+		"API relay",
 		"Back",
 	}
 
@@ -153,6 +178,9 @@ func (m adminModel) updateMainMenu(msg tea.KeyMsg) (adminModel, tea.Cmd) {
 			m.screen = adminChatModeration
 			m.cursor = 0
 		case 8:
+			m.screen = adminAPIRelay
+			m.cursor = 0
+		case 9:
 			return m, func() tea.Msg { return navigateMsg(screenDashboard) }
 		}
 	case "esc", "q":
@@ -252,6 +280,192 @@ func (m adminModel) updateChatModerationMenu(msg tea.KeyMsg) (adminModel, tea.Cm
 	return m, nil
 }
 
+func (m adminModel) updateAPIRelayMenu(msg tea.KeyMsg) (adminModel, tea.Cmd) {
+	options := []string{
+		"List routes",
+		"Add route",
+		"Delete route",
+		"Toggle route",
+		"Back",
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(options)-1 {
+			m.cursor++
+		}
+	case "enter", " ":
+		switch m.cursor {
+		case 0:
+			m.routes = m.proxyStore.ListRoutes()
+			m.screen = adminAPIListRoutes
+		case 1:
+			m.screen = adminAPIAddRoute
+			m.inputFocus = 0
+			m.notice = ""
+			m.initAPIAddInputs()
+			m.inputs[0].Focus()
+			for i := 1; i < len(m.inputs); i++ {
+				m.inputs[i].Blur()
+			}
+			return m, textinput.Blink
+		case 2:
+			m.screen = adminAPIDeleteRoute
+			m.input.SetValue("")
+			m.input.Placeholder = "Enter route name..."
+			m.input.Focus()
+			m.notice = ""
+			return m, textinput.Blink
+		case 3:
+			m.screen = adminAPIToggleRoute
+			m.input.SetValue("")
+			m.input.Placeholder = "Enter route name..."
+			m.input.Focus()
+			m.notice = ""
+			return m, textinput.Blink
+		case 4:
+			m.screen = adminMain
+			m.cursor = 0
+		}
+	case "esc", "q":
+		m.screen = adminMain
+		m.cursor = 0
+	}
+
+	return m, nil
+}
+
+func (m *adminModel) initAPIAddInputs() {
+	fields := []struct {
+		placeholder string
+		charLimit   int
+	}{
+		{"Route name (2-32 chars)", 32},
+		{"Upstream URL (e.g. https://api.openai.com)", 200},
+		{"Path prefix (e.g. /v1, empty = /)", 64},
+		{"API key", 200},
+		{"Key header (default: Authorization)", 64},
+	}
+
+	m.inputs = make([]textinput.Model, len(fields))
+	for i, f := range fields {
+		ti := textinput.New()
+		ti.Placeholder = f.placeholder
+		ti.CharLimit = f.charLimit
+		ti.Width = 30
+		m.inputs[i] = ti
+	}
+}
+
+func (m adminModel) updateAPIAddRoute(msg tea.KeyMsg) (adminModel, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "down":
+		if m.inputFocus < len(m.inputs)-1 {
+			m.inputs[m.inputFocus].Blur()
+			m.inputFocus++
+			m.inputs[m.inputFocus].Focus()
+			return m, textinput.Blink
+		}
+	case "shift+tab", "up":
+		if m.inputFocus > 0 {
+			m.inputs[m.inputFocus].Blur()
+			m.inputFocus--
+			m.inputs[m.inputFocus].Focus()
+			return m, textinput.Blink
+		}
+	case "esc":
+		m.screen = adminAPIRelay
+		m.cursor = 0
+		m.notice = ""
+		for i := range m.inputs {
+			m.inputs[i].Blur()
+		}
+		return m, nil
+	case "enter":
+		name := m.inputs[0].Value()
+		upstream := m.inputs[1].Value()
+		pathPrefix := m.inputs[2].Value()
+		apiKey := m.inputs[3].Value()
+		keyHeader := m.inputs[4].Value()
+
+		err := m.proxyStore.CreateRoute(name, upstream, pathPrefix, apiKey, keyHeader, m.user.Username)
+		if err != nil {
+			m.notice = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.routes = m.proxyStore.ListRoutes()
+		m.screen = adminAPIRelay
+		m.cursor = 0
+		m.notice = successStyle.Render("Route created successfully")
+		for i := range m.inputs {
+			m.inputs[i].Blur()
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.inputs[m.inputFocus], cmd = m.inputs[m.inputFocus].Update(msg)
+	return m, cmd
+}
+
+func (m adminModel) updateAPISingleInput(msg tea.KeyMsg) (adminModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.screen = adminAPIRelay
+		m.cursor = 0
+		m.notice = ""
+		m.input.Blur()
+		return m, nil
+	case "enter":
+		name := m.input.Value()
+		if name == "" {
+			m.notice = "Route name required"
+			return m, nil
+		}
+		if m.screen == adminAPIDeleteRoute {
+			err := m.proxyStore.DeleteRoute(name)
+			if err != nil {
+				m.notice = fmt.Sprintf("Error: %v", err)
+			} else {
+				m.routes = m.proxyStore.ListRoutes()
+				m.notice = successStyle.Render("Route deleted")
+			}
+		} else if m.screen == adminAPIToggleRoute {
+			routes := m.proxyStore.ListRoutes()
+			var currentEnabled bool
+			for _, r := range routes {
+				if r.Name == name {
+					currentEnabled = r.Enabled
+					break
+				}
+			}
+			err := m.proxyStore.SetEnabled(name, !currentEnabled)
+			if err != nil {
+				m.notice = fmt.Sprintf("Error: %v", err)
+			} else {
+				m.routes = m.proxyStore.ListRoutes()
+				status := "disabled"
+				if !currentEnabled {
+					status = "enabled"
+				}
+				m.notice = successStyle.Render(fmt.Sprintf("Route %s", status))
+			}
+		}
+		m.input.SetValue("")
+		m.screen = adminAPIRelay
+		m.cursor = 0
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
 func (m *adminModel) executeAdminAction(username string) {
 	var err error
 	switch m.screen {
@@ -310,6 +524,16 @@ func (m adminModel) View() string {
 		return m.viewInputScreen("Unmute User", "Enter username")
 	case adminListMutes:
 		return m.viewListMutes()
+	case adminAPIRelay:
+		return m.viewAPIRelayMenu()
+	case adminAPIListRoutes:
+		return m.viewAPIListRoutes()
+	case adminAPIAddRoute:
+		return m.viewAPIAddRoute()
+	case adminAPIDeleteRoute:
+		return m.viewInputScreen("Delete Route", "Enter route name")
+	case adminAPIToggleRoute:
+		return m.viewInputScreen("Toggle Route", "Enter route name")
 	default:
 		return m.viewInputScreen("Admin Action", "Enter username")
 	}
@@ -333,6 +557,46 @@ func (m adminModel) viewMainMenu() string {
 		"Reset password",
 		"Delete user",
 		"Chat moderation",
+		"API relay",
+		"Back",
+	}
+
+	var items []string
+	for i, option := range options {
+		cursor := "  "
+		style := menuItemStyle
+		if m.cursor == i {
+			cursor = "> "
+			style = selectedMenuItemStyle
+		}
+		items = append(items, cursor+style.Render(option))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, items...),
+		"",
+		dimStyle.Render("Use ↑↓ or j/k to navigate, Enter to select, Esc to go back"),
+	)
+
+	return Box("Administration", content, boxWidth)
+}
+
+func (m adminModel) viewAPIRelayMenu() string {
+	boxWidth := m.width - 4
+	if boxWidth < 35 {
+		boxWidth = 35
+	}
+	if boxWidth > 70 {
+		boxWidth = 70
+	}
+
+	options := []string{
+		"List routes",
+		"Add route",
+		"Delete route",
+		"Toggle route",
 		"Back",
 	}
 
@@ -355,7 +619,7 @@ func (m adminModel) viewMainMenu() string {
 		dimStyle.Render("Use ↑↓ or j/k to navigate, Enter to select, Esc to go back"),
 	)
 
-	return Box("Administration", content, boxWidth)
+	return Box("API Relay", content, boxWidth)
 }
 
 func (m adminModel) viewChatModerationMenu() string {
@@ -389,7 +653,6 @@ func (m adminModel) viewChatModerationMenu() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, items...),
 		"",
@@ -427,7 +690,6 @@ func (m adminModel) viewListUsers() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, userList...),
 		"",
@@ -475,6 +737,92 @@ func (m adminModel) viewListMutes() string {
 	)
 
 	return Box("Mutes", content, boxWidth)
+}
+
+func (m adminModel) viewAPIListRoutes() string {
+	boxWidth := m.width - 4
+	if boxWidth < 40 {
+		boxWidth = 40
+	}
+	if boxWidth > 120 {
+		boxWidth = 120
+	}
+
+	var routeList []string
+	routeList = append(routeList, fmt.Sprintf("%-15s %-30s %-10s %s",
+		labelStyle.Render("NAME"),
+		labelStyle.Render("UPSTREAM"),
+		labelStyle.Render("STATUS"),
+		labelStyle.Render("PREFIX"),
+	))
+	routeList = append(routeList, "")
+
+	for _, r := range m.routes {
+		status := successStyle.Render("ON")
+		if !r.Enabled {
+			status = errorStyle.Render("OFF")
+		}
+		routeList = append(routeList, fmt.Sprintf("%-15s %-30s %-10s %s",
+			r.Name,
+			r.Upstream,
+			status,
+			r.PathPrefix,
+		))
+	}
+
+	if len(m.routes) == 0 {
+		routeList = append(routeList, dimStyle.Render("No routes configured"))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, routeList...),
+		"",
+		dimStyle.Render("Press Esc to go back"),
+	)
+
+	return Box("API Routes", content, boxWidth)
+}
+
+func (m adminModel) viewAPIAddRoute() string {
+	boxWidth := m.width - 4
+	if boxWidth < 30 {
+		boxWidth = 30
+	}
+	if boxWidth > 80 {
+		boxWidth = 80
+	}
+
+	labels := []string{"Name:", "Upstream:", "Path prefix:", "API key:", "Key header:"}
+
+	var fields []string
+	for i, label := range labels {
+		fields = append(fields, labelStyle.Render(label))
+		fields = append(fields, " "+m.inputs[i].View())
+		fields = append(fields, "")
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		dimStyle.Render("Tab = next field, Shift+Tab = prev field"),
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, fields...),
+	)
+
+	if m.notice != "" {
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			content,
+			"",
+			warningStyle.Render(m.notice),
+		)
+	}
+
+	content = lipgloss.JoinVertical(lipgloss.Left,
+		content,
+		"",
+		dimStyle.Render("Enter = create, Esc = back"),
+	)
+
+	return Box("Add API Route", content, boxWidth)
 }
 
 func (m adminModel) viewInputScreen(title, prompt string) string {
