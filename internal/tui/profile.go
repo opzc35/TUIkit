@@ -44,9 +44,9 @@ func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
 }
 
 func (m profileModel) View() string {
-	boxWidth := m.width / 2
-	if boxWidth < 45 {
-		boxWidth = 45
+	boxWidth := m.width - 4
+	if boxWidth < 30 {
+		boxWidth = 30
 	}
 	if boxWidth > 70 {
 		boxWidth = 70

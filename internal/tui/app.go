@@ -168,24 +168,32 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Forward to all pane models
 		var cmds []tea.Cmd
-		m.mainMenu, _ = m.mainMenu.Update(msg)
-		m.login, _ = m.login.Update(msg)
-		m.register, _ = m.register.Update(msg)
-		for _, pm := range m.panes {
-			var cmd tea.Cmd
-			switch pm.screen {
-			case screenDashboard:
-				pm.dashboard, cmd = pm.dashboard.Update(msg)
-			case screenChat:
-				pm.chatView, cmd = pm.chatView.Update(msg)
-			case screenProfile:
-				pm.profile, cmd = pm.profile.Update(msg)
-			case screenAdmin:
-				pm.admin, cmd = pm.admin.Update(msg)
+		var cmd tea.Cmd
+		m.mainMenu, cmd = m.mainMenu.Update(msg)
+		cmds = append(cmds, cmd)
+		m.login, cmd = m.login.Update(msg)
+		cmds = append(cmds, cmd)
+		m.register, cmd = m.register.Update(msg)
+		cmds = append(cmds, cmd)
+
+		if m.loggedIn && m.layout != nil {
+			for id, dim := range m.layout.PaneDimensions(m.width, m.height-3) {
+				pm := m.panes[id]
+				sizeMsg := tea.WindowSizeMsg{Width: dim[0] - 2, Height: dim[1] - 2}
+				var c tea.Cmd
+				switch pm.screen {
+				case screenDashboard:
+					pm.dashboard, c = pm.dashboard.Update(sizeMsg)
+				case screenChat:
+					pm.chatView, c = pm.chatView.Update(sizeMsg)
+				case screenProfile:
+					pm.profile, c = pm.profile.Update(sizeMsg)
+				case screenAdmin:
+					pm.admin, c = pm.admin.Update(sizeMsg)
+				}
+				cmds = append(cmds, c)
 			}
-			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -435,6 +443,25 @@ func (m rootModel) View() string {
 		return "Loading..."
 	}
 
+	mainHeight := m.height - 3 // Reserve space for status bar
+
+	// Update pane models with their allocated content dimensions before rendering
+	paneDims := m.layout.PaneDimensions(m.width, mainHeight)
+	for id, dim := range paneDims {
+		pm := m.panes[id]
+		sizeMsg := tea.WindowSizeMsg{Width: dim[0] - 2, Height: dim[1] - 2}
+		switch pm.screen {
+		case screenDashboard:
+			pm.dashboard, _ = pm.dashboard.Update(sizeMsg)
+		case screenChat:
+			pm.chatView, _ = pm.chatView.Update(sizeMsg)
+		case screenProfile:
+			pm.profile, _ = pm.profile.Update(sizeMsg)
+		case screenAdmin:
+			pm.admin, _ = pm.admin.Update(sizeMsg)
+		}
+	}
+
 	views := map[paneID]string{}
 	for id, pm := range m.panes {
 		switch pm.screen {
@@ -449,7 +476,6 @@ func (m rootModel) View() string {
 		}
 	}
 
-	mainHeight := m.height - 3 // Reserve space for status bar
 	layoutView := m.layout.Render(m.width, mainHeight, views)
 
 	statusBar := statusBarStyle.Width(m.width - 4).Render(

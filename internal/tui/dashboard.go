@@ -103,27 +103,29 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		inputWidth := m.width/2 - 16
-		if inputWidth < 20 {
-			inputWidth = 20
+		if inputWidth < 10 {
+			inputWidth = 10
 		}
 		if inputWidth > 60 {
 			inputWidth = 60
 		}
 		m.nameInput.Width = inputWidth
 		m.topicInput.Width = inputWidth
-		sidebarWidth := m.width / 3
-		if sidebarWidth < 28 {
-			sidebarWidth = 28
+		if m.width < 50 {
+			listHeight := m.height - 6
+			if listHeight < 5 {
+				listHeight = 5
+			}
+			m.channelList.SetSize(m.width-4, listHeight)
+		} else {
+			sidebarWidth := m.width / 3
+			contentWidth := m.width - sidebarWidth - 4
+			listHeight := m.height - 12
+			if listHeight < 5 {
+				listHeight = 5
+			}
+			m.channelList.SetSize(contentWidth-4, listHeight)
 		}
-		contentWidth := m.width - sidebarWidth - 8
-		if contentWidth < 40 {
-			contentWidth = 40
-		}
-		listHeight := m.height - 12
-		if listHeight < 10 {
-			listHeight = 10
-		}
-		m.channelList.SetSize(contentWidth-4, listHeight)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -219,15 +221,27 @@ func (m dashboardModel) View() string {
 }
 
 func (m dashboardModel) viewMain() string {
-	// Calculate responsive widths
+	// Compact layout for narrow panes
+	if m.width < 50 {
+		listHeight := m.height - 6
+		if listHeight < 5 {
+			listHeight = 5
+		}
+		m.channelList.SetSize(m.width-4, listHeight)
+
+		content := lipgloss.JoinVertical(lipgloss.Left,
+			titleStyle.Render("Dashboard"),
+			"",
+			m.channelList.View(),
+			"",
+			dimStyle.Render("Enter=join c=create p=profile a=admin q=logout"),
+		)
+		return lipgloss.NewStyle().Padding(0, 1).Render(content)
+	}
+
+	// Two-column layout for wider panes
 	sidebarWidth := m.width / 3
-	if sidebarWidth < 28 {
-		sidebarWidth = 28
-	}
-	contentWidth := m.width - sidebarWidth - 8
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := m.width - sidebarWidth - 4
 
 	dynamicSidebarStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -269,9 +283,9 @@ func (m dashboardModel) viewMain() string {
 }
 
 func (m dashboardModel) viewCreateChannel() string {
-	boxWidth := m.width / 2
-	if boxWidth < 40 {
-		boxWidth = 40
+	boxWidth := m.width - 4
+	if boxWidth < 30 {
+		boxWidth = 30
 	}
 	if boxWidth > 80 {
 		boxWidth = 80

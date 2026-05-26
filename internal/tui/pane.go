@@ -221,6 +221,35 @@ func (l *Layout) Render(width, height int, views map[paneID]string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, topView, bottomView)
 }
 
+// PaneDimensions returns the allocated (width, height) for each pane.
+func (l *Layout) PaneDimensions(width, height int) map[paneID][2]int {
+	if l.pane != nil {
+		return map[paneID][2]int{l.pane.id: {width, height}}
+	}
+
+	dims := map[paneID][2]int{}
+	if l.dir == splitHorizontal {
+		leftW := int(float64(width) * l.ratio)
+		rightW := width - leftW
+		for id, dim := range l.left.PaneDimensions(leftW, height) {
+			dims[id] = dim
+		}
+		for id, dim := range l.right.PaneDimensions(rightW, height) {
+			dims[id] = dim
+		}
+	} else {
+		topH := int(float64(height) * l.ratio)
+		bottomH := height - topH
+		for id, dim := range l.left.PaneDimensions(width, topH) {
+			dims[id] = dim
+		}
+		for id, dim := range l.right.PaneDimensions(width, bottomH) {
+			dims[id] = dim
+		}
+	}
+	return dims
+}
+
 // PaneCount returns the number of panes.
 func (l *Layout) PaneCount() int {
 	if l.pane != nil {

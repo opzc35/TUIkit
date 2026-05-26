@@ -316,9 +316,9 @@ func (m adminModel) View() string {
 }
 
 func (m adminModel) viewMainMenu() string {
-	boxWidth := m.width / 2
-	if boxWidth < 45 {
-		boxWidth = 45
+	boxWidth := m.width - 4
+	if boxWidth < 35 {
+		boxWidth = 35
 	}
 	if boxWidth > 70 {
 		boxWidth = 70
@@ -359,9 +359,9 @@ func (m adminModel) viewMainMenu() string {
 }
 
 func (m adminModel) viewChatModerationMenu() string {
-	boxWidth := m.width / 2
-	if boxWidth < 45 {
-		boxWidth = 45
+	boxWidth := m.width - 4
+	if boxWidth < 35 {
+		boxWidth = 35
 	}
 	if boxWidth > 70 {
 		boxWidth = 70
@@ -400,9 +400,9 @@ func (m adminModel) viewChatModerationMenu() string {
 }
 
 func (m adminModel) viewListUsers() string {
-	boxWidth := m.width - 20
-	if boxWidth < 60 {
-		boxWidth = 60
+	boxWidth := m.width - 4
+	if boxWidth < 40 {
+		boxWidth = 40
 	}
 	if boxWidth > 100 {
 		boxWidth = 100
@@ -438,9 +438,9 @@ func (m adminModel) viewListUsers() string {
 }
 
 func (m adminModel) viewListMutes() string {
-	boxWidth := m.width - 20
-	if boxWidth < 60 {
-		boxWidth = 60
+	boxWidth := m.width - 4
+	if boxWidth < 40 {
+		boxWidth = 40
 	}
 	if boxWidth > 100 {
 		boxWidth = 100
@@ -478,9 +478,9 @@ func (m adminModel) viewListMutes() string {
 }
 
 func (m adminModel) viewInputScreen(title, prompt string) string {
-	boxWidth := m.width / 2
-	if boxWidth < 40 {
-		boxWidth = 40
+	boxWidth := m.width - 4
+	if boxWidth < 30 {
+		boxWidth = 30
 	}
 	if boxWidth > 80 {
 		boxWidth = 80

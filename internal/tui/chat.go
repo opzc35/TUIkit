@@ -110,22 +110,26 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Responsive sizing
-		sidebarWidth := m.width / 4
-		if sidebarWidth < 24 {
-			sidebarWidth = 24
+
+		if m.width < 40 {
+			viewportHeight := m.height - 6
+			if viewportHeight < 5 {
+				viewportHeight = 5
+			}
+			m.viewport.Width = m.width - 4
+			m.viewport.Height = viewportHeight
+			m.input.Width = m.width - 8
+		} else {
+			sidebarWidth := m.width / 4
+			contentWidth := m.width - sidebarWidth - 4
+			viewportHeight := m.height - 14
+			if viewportHeight < 5 {
+				viewportHeight = 5
+			}
+			m.viewport.Width = contentWidth - 6
+			m.viewport.Height = viewportHeight
+			m.input.Width = contentWidth - 8
 		}
-		contentWidth := m.width - sidebarWidth - 10
-		if contentWidth < 40 {
-			contentWidth = 40
-		}
-		viewportHeight := m.height - 14
-		if viewportHeight < 10 {
-			viewportHeight = 10
-		}
-		m.viewport.Width = contentWidth - 6
-		m.viewport.Height = viewportHeight
-		m.input.Width = contentWidth - 8
 		m.updateViewport()
 		return m, nil
 
@@ -189,15 +193,37 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 }
 
 func (m chatModel) View() string {
-	// Calculate responsive widths
+	// Compact layout for narrow panes
+	if m.width < 40 {
+		viewportHeight := m.height - 6
+		if viewportHeight < 5 {
+			viewportHeight = 5
+		}
+		m.viewport.Width = m.width - 4
+		m.viewport.Height = viewportHeight
+		m.input.Width = m.width - 8
+		m.updateViewport()
+
+		noticeView := ""
+		if m.notice != "" {
+			noticeView = warningStyle.Render(m.notice) + "\n"
+		}
+
+		return lipgloss.NewStyle().Padding(0, 1).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				titleStyle.Render("#"+m.channel),
+				"",
+				m.viewport.View(),
+				"",
+				noticeView,
+				labelStyle.Render("> ")+m.input.View(),
+			),
+		)
+	}
+
+	// Two-column layout for wider panes
 	sidebarWidth := m.width / 4
-	if sidebarWidth < 24 {
-		sidebarWidth = 24
-	}
-	contentWidth := m.width - sidebarWidth - 10
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := m.width - sidebarWidth - 4
 
 	// Create dynamic styles based on window size
 	dynamicSidebarStyle := lipgloss.NewStyle().
