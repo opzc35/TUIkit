@@ -24,6 +24,7 @@ const (
 	screenChat
 	screenProfile
 	screenAdmin
+	screenCheckIn
 )
 
 type App struct {
@@ -39,6 +40,7 @@ type paneModel struct {
 	chatView  chatModel
 	profile   profileModel
 	admin     adminModel
+	checkin   checkinModel
 }
 
 type rootModel struct {
@@ -156,6 +158,12 @@ func (m *rootModel) createPane(screen screen) *Pane {
 		if m.user != nil {
 			pm.admin.user = *m.user
 		}
+	case screenCheckIn:
+		pm.checkin = newCheckIn(m.store)
+		if m.user != nil {
+			pm.checkin.user = *m.user
+		}
+		pm.checkin.ranking = m.store.GetCheckInRanking(10)
 	}
 
 	m.panes[id] = pm
@@ -191,6 +199,8 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					pm.profile, c = pm.profile.Update(sizeMsg)
 				case screenAdmin:
 					pm.admin, c = pm.admin.Update(sizeMsg)
+				case screenCheckIn:
+					pm.checkin, c = pm.checkin.Update(sizeMsg)
 				}
 				cmds = append(cmds, c)
 			}
@@ -334,7 +344,7 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+s":
 				return m, func() tea.Msg { return splitMsg{dir: splitHorizontal} }
-			case "ctrl+v":
+			case "ctrl+d":
 				return m, func() tea.Msg { return splitMsg{dir: splitVertical} }
 			case "ctrl+w":
 				return m, func() tea.Msg { return closePaneMsg{} }
@@ -396,6 +406,8 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		pm.profile, cmd = pm.profile.Update(msg)
 	case screenAdmin:
 		pm.admin, cmd = pm.admin.Update(msg)
+	case screenCheckIn:
+		pm.checkin, cmd = pm.checkin.Update(msg)
 	}
 
 	// Also update non-focused chat panes to process events
@@ -459,6 +471,8 @@ func (m rootModel) View() string {
 			pm.profile, _ = pm.profile.Update(sizeMsg)
 		case screenAdmin:
 			pm.admin, _ = pm.admin.Update(sizeMsg)
+		case screenCheckIn:
+			pm.checkin, _ = pm.checkin.Update(sizeMsg)
 		}
 	}
 
@@ -473,13 +487,15 @@ func (m rootModel) View() string {
 			views[id] = pm.profile.View()
 		case screenAdmin:
 			views[id] = pm.admin.View()
+		case screenCheckIn:
+			views[id] = pm.checkin.View()
 		}
 	}
 
 	layoutView := m.layout.Render(m.width, mainHeight, views)
 
 	statusBar := statusBarStyle.Width(m.width - 4).Render(
-		fmt.Sprintf(" %s %s | User: %s (%s) | Panes: %s | Ctrl+s/v split | Ctrl+w close | Ctrl+h/l focus",
+		fmt.Sprintf(" %s %s | User: %s (%s) | Panes: %s | Ctrl+s/d split | Ctrl+w close | Ctrl+h/l focus",
 			time.Now().Format("15:04:05"),
 			time.Now().Format("2006-01-02"),
 			m.user.Username,

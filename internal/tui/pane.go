@@ -303,6 +303,8 @@ func screenLabel(s screen) string {
 		return "Profile"
 	case screenAdmin:
 		return "Admin"
+	case screenCheckIn:
+		return "CheckIn"
 	default:
 		return "?"
 	}

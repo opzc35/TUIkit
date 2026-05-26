@@ -32,12 +32,14 @@ var (
 )
 
 type User struct {
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	Role         Role      `json:"role"`
-	Active       bool      `json:"active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Username       string    `json:"username"`
+	PasswordHash   string    `json:"password_hash"`
+	Role           Role      `json:"role"`
+	Active         bool      `json:"active"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	CheckInPoints  int       `json:"check_in_points"`
+	LastCheckInAt  string    `json:"last_check_in_at"` // format: "2006-01-02"
 }
 
 type Store struct {
@@ -278,4 +280,108 @@ func RandomPassword(length int) string {
 		return fmt.Sprintf("admin-%d", time.Now().UnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(buf)[:length]
+}
+
+type CheckInResult struct {
+	Success       bool
+	PointsEarned  int
+	TotalPoints   int
+	ConsecutiveDays int
+	Message       string
+}
+
+func (s *Store) CheckIn(username string) (CheckInResult, error) {
+	username = normalizeUsername(username)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	user, ok := s.users[username]
+	if !ok {
+		return CheckInResult{}, ErrUserNotFound
+	}
+
+	today := time.Now().Format("2006-01-02")
+	if user.LastCheckInAt == today {
+		return CheckInResult{
+			Success:      false,
+			TotalPoints:  user.CheckInPoints,
+			Message:      "你今天已经签到过了",
+		}, nil
+	}
+
+	// Calculate consecutive days
+	var consecutiveDays int
+	if user.LastCheckInAt != "" {
+		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+		if user.LastCheckInAt == yesterday {
+			consecutiveDays = 1
+		}
+	}
+
+	// Points calculation: base 10, bonus for consecutive days
+	points := 10 + consecutiveDays*2
+	if points > 30 {
+		points = 30
+	}
+
+	user.CheckInPoints += points
+	user.LastCheckInAt = today
+	user.UpdatedAt = time.Now().UTC()
+	s.users[username] = user
+
+	if err := s.saveLocked(); err != nil {
+		return CheckInResult{}, err
+	}
+
+	return CheckInResult{
+		Success:         true,
+		PointsEarned:    points,
+		TotalPoints:     user.CheckInPoints,
+		ConsecutiveDays: consecutiveDays + 1,
+		Message:         fmt.Sprintf("签到成功！获得 %d 积分", points),
+	}, nil
+}
+
+type RankingEntry struct {
+	Username string
+	Points   int
+	Rank     int
+}
+
+func (s *Store) GetCheckInRanking(limit int) []RankingEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries := make([]RankingEntry, 0, len(s.users))
+	for _, user := range s.users {
+		entries = append(entries, RankingEntry{
+			Username: user.Username,
+			Points:   user.CheckInPoints,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Points != entries[j].Points {
+			return entries[i].Points > entries[j].Points
+		}
+		return entries[i].Username < entries[j].Username
+	})
+
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	for i := range entries {
+		entries[i].Rank = i + 1
+	}
+
+	return entries
+}
+
+func (s *Store) GetUser(username string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.users[normalizeUsername(username)]
+	return user, ok
 }

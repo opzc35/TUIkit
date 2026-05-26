@@ -147,6 +147,8 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			return m, textinput.Blink
 		case "p":
 			return m, func() tea.Msg { return navigateMsg(screenProfile) }
+		case "i":
+			return m, func() tea.Msg { return navigateMsg(screenCheckIn) }
 		case "a":
 			if m.user.Role == auth.RoleAdmin {
 				return m, func() tea.Msg { return navigateMsg(screenAdmin) }
@@ -234,7 +236,7 @@ func (m dashboardModel) viewMain() string {
 			"",
 			m.channelList.View(),
 			"",
-			dimStyle.Render("Enter=join c=create p=profile a=admin q=logout"),
+			dimStyle.Render("Enter=join c=create i=checkin p=profile a=admin q=logout"),
 		)
 		return lipgloss.NewStyle().Padding(0, 1).Render(content)
 	}
@@ -261,6 +263,7 @@ func (m dashboardModel) viewMain() string {
 			"",
 			menuItemStyle.Render("> Channels"),
 			"  Create (c)",
+			"  Check-in (i)",
 			"  Profile (p)",
 			"  Admin (a)",
 			"  Logout (q)",
@@ -271,7 +274,7 @@ func (m dashboardModel) viewMain() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			m.channelList.View(),
 			"",
-			dimStyle.Render("Enter = join, c = create, p/a/q = navigate"),
+			dimStyle.Render("Enter = join, c/i/p/a/q = navigate"),
 		),
 	)
 
