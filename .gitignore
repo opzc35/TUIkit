@@ -1,3 +1,13 @@
-data/users.json
+# Build output
 tuikit
-tuikit
+
+# Runtime data
+data/
+
+# Go
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
