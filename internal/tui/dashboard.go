@@ -149,6 +149,8 @@ func (m dashboardModel) updateMain(msg tea.Msg) (dashboardModel, tea.Cmd) {
 			return m, func() tea.Msg { return navigateMsg(screenProfile) }
 		case "i":
 			return m, func() tea.Msg { return navigateMsg(screenCheckIn) }
+		case "x":
+			return m, func() tea.Msg { return navigateMsg(screenAPIUser) }
 		case "a":
 			if m.user.Role == auth.RoleAdmin {
 				return m, func() tea.Msg { return navigateMsg(screenAdmin) }

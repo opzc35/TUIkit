@@ -150,9 +150,6 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			if m.unsub != nil {
-				m.unsub()
-			}
 			return m, func() tea.Msg { return navigateMsg(screenDashboard) }
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
@@ -161,9 +158,6 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 			}
 			switch strings.ToLower(text) {
 			case "/back", "/quit", "/exit":
-				if m.unsub != nil {
-					m.unsub()
-				}
 				return m, func() tea.Msg { return navigateMsg(screenDashboard) }
 			case "/help":
 				m.notice = "Commands: /back leaves, /help shows this"
