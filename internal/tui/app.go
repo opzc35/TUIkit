@@ -173,8 +173,8 @@ func (m *rootModel) createPane(screen screen) *Pane {
 			pm.checkin.user = *m.user
 		}
 		pm.checkin.ranking = m.store.GetCheckInRanking(10)
-		case screenAPIUser:
-			pm.apiUser = newAPIUser(m.proxyStore, m.apiAddr)
+	case screenAPIUser:
+		pm.apiUser = newAPIUser(m.proxyStore, m.apiAddr)
 	}
 
 	m.panes[id] = pm
@@ -421,6 +421,8 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		pm.admin, cmd = pm.admin.Update(msg)
 	case screenCheckIn:
 		pm.checkin, cmd = pm.checkin.Update(msg)
+	case screenAPIUser:
+		pm.apiUser, cmd = pm.apiUser.Update(msg)
 	}
 
 	// Also update non-focused chat panes to process events
@@ -486,6 +488,8 @@ func (m rootModel) View() string {
 			pm.admin, _ = pm.admin.Update(sizeMsg)
 		case screenCheckIn:
 			pm.checkin, _ = pm.checkin.Update(sizeMsg)
+		case screenAPIUser:
+			pm.apiUser, _ = pm.apiUser.Update(sizeMsg)
 		}
 	}
 
@@ -502,6 +506,8 @@ func (m rootModel) View() string {
 			views[id] = pm.admin.View()
 		case screenCheckIn:
 			views[id] = pm.checkin.View()
+		case screenAPIUser:
+			views[id] = pm.apiUser.View()
 		}
 	}
 
