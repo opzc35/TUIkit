@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -11,6 +10,19 @@ import (
 	"sync"
 	"time"
 )
+
+// hopByHopHeaders are headers that apply to a single transport-level
+// connection and must not be forwarded by proxies.
+var hopByHopHeaders = []string{
+	"Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"Te",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
+}
 
 type Server struct {
 	addr     string
@@ -68,12 +80,21 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
+const maxRequestBodyBytes = 10 << 20 // 10 MB
+
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodConnect || r.Method == http.MethodTrace {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	route, found := s.store.MatchRoute(r.URL.Path)
 	if !found {
 		http.Error(w, "no matching route found", http.StatusNotFound)
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 
 	// Build the upstream URL
 	upstreamPath := r.URL.Path
@@ -88,14 +109,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		targetURL += "?" + r.URL.RawQuery
 	}
 
-	outReq, err := http.NewRequest(r.Method, targetURL, r.Body)
+	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
+		log.Printf("proxy: failed to create upstream request: %v", err)
 		http.Error(w, "failed to create upstream request", http.StatusInternalServerError)
 		return
 	}
 
-	// Copy headers from original request, then inject the API key
+	// Copy headers, skipping hop-by-hop headers.
 	for key, values := range r.Header {
+		if isHopByHop(key) {
+			continue
+		}
 		for _, v := range values {
 			outReq.Header.Add(key, v)
 		}
@@ -115,18 +140,33 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(outReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("upstream error: %v", err), http.StatusBadGateway)
+		log.Printf("proxy: upstream request failed: %v", err)
+		http.Error(w, "upstream request failed", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
+	// Copy response headers, skipping hop-by-hop headers.
 	for key, values := range resp.Header {
+		if isHopByHop(key) {
+			continue
+		}
 		for _, v := range values {
 			w.Header().Add(key, v)
 		}
 	}
 
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Printf("proxy: error copying response body: %v", err)
+	}
+}
+
+func isHopByHop(header string) bool {
+	for _, h := range hopByHopHeaders {
+		if strings.EqualFold(header, h) {
+			return true
+		}
+	}
+	return false
 }

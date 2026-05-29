@@ -102,6 +102,9 @@ func (s *Store) CreateRoute(name, upstream, pathPrefix, apiKey, keyHeader, creat
 
 func (s *Store) DeleteRoute(name string) error {
 	name = normalizeName(name)
+	if err := validateName(name); err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,6 +118,9 @@ func (s *Store) DeleteRoute(name string) error {
 
 func (s *Store) SetEnabled(name string, enabled bool) error {
 	name = normalizeName(name)
+	if err := validateName(name); err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -160,8 +166,16 @@ func (s *Store) EnabledRoutes() []Route {
 }
 
 func (s *Store) MatchRoute(path string) (Route, bool) {
+	if path == "" {
+		return Route{}, false
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	var best Route
+	var found bool
+	bestLen := -1
 
 	for _, r := range s.routes {
 		if !r.Enabled {
@@ -171,11 +185,13 @@ func (s *Store) MatchRoute(path string) (Route, bool) {
 		if prefix == "" {
 			prefix = "/"
 		}
-		if strings.HasPrefix(path, prefix) {
-			return r, true
+		if strings.HasPrefix(path, prefix) && len(prefix) > bestLen {
+			best = r
+			bestLen = len(prefix)
+			found = true
 		}
 	}
-	return Route{}, false
+	return best, found
 }
 
 func (s *Store) saveLocked() error {
